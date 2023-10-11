@@ -1,31 +1,23 @@
 const { spawn } = require('child_process');
-const express = require('express');
 const WebSocket = require('ws');
-const cors = require('cors'); // Import the cors package
-const { escape } = require('querystring');
-const app = express();
 const wss = new WebSocket.Server({ port: 7100 });
 const port = 7000;
 
-app.use(cors());
-app.use(express.json());
 
 // Event handler for when a client connects
 wss.on('connection', (ws) => {
     console.log('Client connected');
 
-    app.post('/', (req, res) => {
-        console.log(req.body);
-        const cppCode = req.body.code;
-        compileAndRun(cppCode, res);
-    });
-
-    app.listen(port, () => {
-        console.log(`Server is running on port ${port}`);
+    ws.on('message', (message) => {
+        let jsonData = JSON.parse(message);
+        if (jsonData.code) {
+            console.log(`Received: ${jsonData.code}`);
+            compileAndRun(jsonData.code, ws);
+        }
     });
 
     // Compile and run the C++ program
-    const compileAndRun = (cppCode, res) => {
+    const compileAndRun = (cppCode, ws) => {
         const compileProcess = spawn('g++', ['-o', 'my_program', '-x', 'c++', '-'], { shell: true });
 
         compileProcess.stdin.write(cppCode);
@@ -39,7 +31,7 @@ wss.on('connection', (ws) => {
 
         compileProcess.on('close', (code) => {
             if (code === 0) {
-                res.json({ output: 'Code compiled successfuly', error: '' });
+                ws.send(JSON.stringify({ output: 'Code compiled successfuly \n', error: '' }));
 
                 const runProcess = spawn('./my_program', { shell: true });
 
@@ -53,8 +45,11 @@ wss.on('connection', (ws) => {
 
                 ws.on('message', (message) => {
                     console.log(`Received: ${message}`);
-                    runProcess.stdin.write(message);
-                    runProcess.stdin.end();
+                    let jsonData = JSON.parse(message);
+                    if (jsonData.input) {
+                        runProcess.stdin.write(jsonData.input);
+                        runProcess.stdin.end();
+                    }
                 });
 
                 runProcess.on('close', (code) => {
@@ -62,26 +57,15 @@ wss.on('connection', (ws) => {
                 });
 
             } else {
-                res.json({ output: '', error: compilationError });
+                ws.send(JSON.stringify({ output: '', error: compilationError }));
                 console.error('Compilation Failed');
             }
         });
     };
 
-    // Event handler for messages received from clients
-    ws.on('message', (message) => {
-        console.log(`Received: ${message}`);
-
-        // Send a response back to the client
-        ws.send(`You said: ${message}`);
-    });
 
     // Event handler for when a client disconnects
     ws.on('close', () => {
         console.log('Client disconnected');
     });
-});
-
-app.get('/', (req, res) => {
-    res.json({ message: 'Code compiler running' });
 });
