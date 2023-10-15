@@ -1,14 +1,9 @@
-const { spawn } = require('child_process');
-const fs = require('fs');
-const WebSocket = require('ws');
-const https = require('https');
-const port = 7000;
-
-const server = https.createServer({
-    key: fs.readFileSync('./key.pem'),
-    cert: fs.readFileSync('./cert.pem'),
-});
-const wss = new WebSocket.Server({ server });
+const { spawn, execSync } = require('child_process');
+var WebSocketServer = require('ws').Server;
+const express = require('express');
+const cors = require('cors');
+const port = process.env.PORT || 7000;
+var wss = new WebSocketServer({ port: 7100 });
 
 // Event handler for when a client connects
 wss.on('connection', (ws) => {
@@ -75,6 +70,31 @@ wss.on('connection', (ws) => {
     });
 });
 
-server.listen(7100, () => {
-    console.log('WebSocket server is running on https://localhost:7100');
+// For code formatting
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+
+app.post('/', (req, res) => {
+    console.log(req.body);
+    const cppCode = req.body.code;
+    res.json({ code: formatCode(cppCode) });
 });
+
+app.get('/', (req, res) => {
+    res.json({ message: 'Code compiler running' });
+});
+
+app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+});
+
+function formatCode(code) {
+    try {
+        const formattedCode = execSync('clang-format -style=file', { input: code }).toString();
+        return formattedCode;
+    } catch (error) {
+        console.error("Formatting error:", error);
+    }
+}
