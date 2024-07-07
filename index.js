@@ -4,12 +4,27 @@ const express = require('express');
 const cors = require('cors');
 const port = process.env.PORT || 7000;
 var wss = new WebSocketServer({ port: 7100 });
+const morgan = require('morgan');
+const path = require('path');
+const fs = require('fs');
+
+// Create a write stream (in append mode)
+const accessLogStream = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' });
+
+// Define a custom token for real IP address
+morgan.token('real-ip', function (req) {
+    return req.headers['x-forwarded-for'] ||
+        req.connection.remoteAddress ||
+        req.socket.remoteAddress ||
+        (req.connection.socket ? req.connection.socket.remoteAddress : null);
+});
 
 // Event handler for when a client connects
-wss.on('connection', (ws) => {
-    console.log('Client connected');
+wss.on('connection', (ws, req) => {
+    logWebSocketEvent('connected', req);
 
     ws.on('message', (message) => {
+        logWebSocketEvent(`received message: ${message}`, req);
         let jsonData = JSON.parse(message);
         if (jsonData.code) {
             console.log(`Received: ${jsonData.code}`);
@@ -66,12 +81,15 @@ wss.on('connection', (ws) => {
 
     // Event handler for when a client disconnects
     ws.on('close', () => {
+        logWebSocketEvent('disconnected', req);
         console.log('Client disconnected');
     });
 });
 
 // For code formatting
 const app = express();
+app.use(morgan(':real-ip - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"', { stream: accessLogStream }));
+
 app.use(cors());
 app.use(express.json());
 
@@ -97,4 +115,17 @@ function formatCode(code) {
     } catch (error) {
         console.error("Formatting error:", error);
     }
+}
+
+// WebSocket logging function
+function logWebSocketEvent(event, req) {
+    const clientIp = req.headers['x-real-ip'] || 
+                     req.headers['x-forwarded-for'] || 
+                     req.connection.remoteAddress || 
+                     req.socket.remoteAddress ||
+                     (req.connection.socket ? req.connection.socket.remoteAddress : null);
+    const log = `${new Date().toISOString()} - ${clientIp} - WebSocket ${event}\n`;
+    fs.appendFile(path.join(__dirname, 'websocket-events.log'), log, (err) => {
+        if (err) console.error('Error writing to WebSocket log:', err);
+    });
 }
