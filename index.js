@@ -32,7 +32,7 @@ wss.on('connection', (ws) => {
 
         compileProcess.on('close', (code) => {
             if (code === 0) {
-                ws.send(JSON.stringify({ output: 'Code compiled successfuly \n\n', error: '' }));
+                // ws.send(JSON.stringify({ output: 'Code compiled successfuly \n\n', error: '' }));
 
                 const runProcess = spawn('./my_program', { shell: true });
 
@@ -53,7 +53,7 @@ wss.on('connection', (ws) => {
                 });
 
                 runProcess.on('close', (code) => {
-                    ws.send(JSON.stringify({ closed: true, output: `\n\nC++ Program Exited with Code ${code}` }));
+                    ws.send(JSON.stringify({ closed: true, output: `\n\nProcess completed with Code ${code}` }));
                 });
 
             } else {
