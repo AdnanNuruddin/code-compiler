@@ -1,12 +1,14 @@
-const { spawn, execSync } = require('child_process');
-var WebSocketServer = require('ws').Server;
-const express = require('express');
-const cors = require('cors');
-const port = process.env.PORT || 7000;
-var wss = new WebSocketServer({ port: 7100 });
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const { spawn, execSync } = require('child_process');
+const express = require('express');
+const cors = require('cors');
+
+const WebSocketServer = require('ws').Server;
+var wss = new WebSocketServer({ port: 7100 });
+
+const port = process.env.PORT || 7000;
 
 // Create a write stream (in append mode)
 const accessLogStream = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' });
@@ -25,11 +27,18 @@ wss.on('connection', (ws, req) => {
 
     ws.on('message', (message) => {
         logWebSocketEvent(`received message: ${message}`, req);
-        let jsonData = JSON.parse(message);
-        if (jsonData.code) {
-            console.log(`Received: ${jsonData.code}`);
-            compileAndRun(jsonData.code, ws);
+
+        try {
+            let jsonData = JSON.parse(message);
+            if (jsonData.code) {
+                console.log(`Received: ${jsonData.code}`);
+                compileAndRun(jsonData.code, ws);
+            }
+        } catch (error) {
+            console.error('Error parsing message:', error);
+            ws.send(JSON.stringify({ error: 'Invalid JSON' }));
         }
+
     });
 
     // Compile and run the C++ program
@@ -61,9 +70,14 @@ wss.on('connection', (ws, req) => {
 
                 ws.on('message', (message) => {
                     console.log(`Input Received: ${message}`);
-                    let jsonData = JSON.parse(message);
-                    if (jsonData.input) {
-                        runProcess.stdin.write(jsonData.input + '\n');
+                    try {
+                        let jsonData = JSON.parse(message);
+                        if (jsonData.input) {
+                            runProcess.stdin.write(jsonData.input + '\n');
+                        }
+                    } catch (error) {
+                        console.error('Error parsing input:', error);
+                        wss.send
                     }
                 });
 
@@ -119,11 +133,11 @@ function formatCode(code) {
 
 // WebSocket logging function
 function logWebSocketEvent(event, req) {
-    const clientIp = req.headers['x-real-ip'] || 
-                     req.headers['x-forwarded-for'] || 
-                     req.connection.remoteAddress || 
-                     req.socket.remoteAddress ||
-                     (req.connection.socket ? req.connection.socket.remoteAddress : null);
+    const clientIp = req.headers['x-real-ip'] ||
+        req.headers['x-forwarded-for'] ||
+        req.connection.remoteAddress ||
+        req.socket.remoteAddress ||
+        (req.connection.socket ? req.connection.socket.remoteAddress : null);
     const log = `${new Date().toISOString()} - ${clientIp} - WebSocket ${event}\n`;
     fs.appendFile(path.join(__dirname, 'websocket-events.log'), log, (err) => {
         if (err) console.error('Error writing to WebSocket log:', err);
