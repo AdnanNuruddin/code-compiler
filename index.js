@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn, execSync } = require('child_process');
 const express = require('express');
 const cors = require('cors');
+const { v4: uuidv4 } = require('uuid');
 
 const WebSocketServer = require('ws').Server;
 var wss = new WebSocketServer({ port: 7100 });
@@ -11,7 +12,7 @@ var wss = new WebSocketServer({ port: 7100 });
 const port = process.env.PORT || 7000;
 
 // Create a write stream (in append mode)
-const accessLogStream = fs.createWriteStream(path.join(__dirname, 'access.log'), { flags: 'a' });
+const accessLogStream = fs.createWriteStream(path.join(__dirname, 'logs/access.log'), { flags: 'a' });
 
 // Define a custom token for real IP address
 morgan.token('real-ip', function (req) {
@@ -23,16 +24,17 @@ morgan.token('real-ip', function (req) {
 
 // Event handler for when a client connects
 wss.on('connection', (ws, req) => {
+    ws.id = getCurrentDateTime()+'_'+uuidv4().substr(0, 8);
+    console.log(ws.id);
     logWebSocketEvent('connected', req);
 
     ws.on('message', (message) => {
         logWebSocketEvent(`received message: ${message}`, req);
-
         try {
             let jsonData = JSON.parse(message);
             if (jsonData.code) {
                 console.log(`Received: ${jsonData.code}`);
-                compileAndRun(jsonData.code, ws);
+                compileAndRun(jsonData.code);
             }
         } catch (error) {
             console.error('Error parsing message:', error);
@@ -42,8 +44,8 @@ wss.on('connection', (ws, req) => {
     });
 
     // Compile and run the C++ program
-    const compileAndRun = (cppCode, ws) => {
-        const compileProcess = spawn('g++', ['-o', 'my_program', '-x', 'c++', '-'], { shell: true });
+    const compileAndRun = (cppCode) => {
+        const compileProcess = spawn('g++', ['-o', 'outputs/' + ws.id, '-x', 'c++', '-'], { shell: true });
 
         compileProcess.stdin.write(cppCode);
         compileProcess.stdin.end();
@@ -58,7 +60,7 @@ wss.on('connection', (ws, req) => {
             if (code === 0) {
                 // ws.send(JSON.stringify({ output: 'Code compiled successfuly \n\n', error: '' }));
 
-                const runProcess = spawn('./my_program', { shell: true });
+                const runProcess = spawn('outputs/' + ws.id, { shell: true });
 
                 runProcess.stdout.on('data', (data) => {
                     ws.send(JSON.stringify({ output: data.toString() }));
@@ -122,6 +124,7 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
+//Format code with post data 
 function formatCode(code) {
     try {
         const formattedCode = execSync('clang-format -style=file', { input: code }).toString();
@@ -139,7 +142,11 @@ function logWebSocketEvent(event, req) {
         req.socket.remoteAddress ||
         (req.connection.socket ? req.connection.socket.remoteAddress : null);
     const log = `${new Date().toISOString()} - ${clientIp} - WebSocket ${event}\n`;
-    fs.appendFile(path.join(__dirname, 'websocket-events.log'), log, (err) => {
+    fs.appendFile(path.join(__dirname, 'logs/websocket-events.log'), log, (err) => {
         if (err) console.error('Error writing to WebSocket log:', err);
     });
+}
+
+function getCurrentDateTime(){
+    return new Date().toJSON().slice(0, 19).replace('T', '_');
 }
