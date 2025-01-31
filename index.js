@@ -88,9 +88,11 @@ wss.on('connection', (ws, req) => {
 
     try {
       const jsonData = JSON.parse(message);
-      const { code, lang } = jsonData;
-
-      if (!code || !lang) {
+      const { code, lang, input } = jsonData;
+      
+      if (input) {
+        return;
+      } else if (!code || !lang) {
         ws.send(JSON.stringify({ error: 'Missing code or language field' }));
         return;
       }
