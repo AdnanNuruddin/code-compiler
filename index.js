@@ -89,7 +89,7 @@ wss.on('connection', (ws, req) => {
     try {
       const jsonData = JSON.parse(message);
       const { code, lang, input } = jsonData;
-      
+
       if (input) {
         return;
       } else if (!code || !lang) {
@@ -101,6 +101,11 @@ wss.on('connection', (ws, req) => {
         case 'c++':
           console.log(`[${ws.id}] Compiling and running C++ code.`);
           compileAndRunCPP(code, ws);
+          break;
+
+        case 'c':
+          console.log(`[${ws.id}] Compiling and running C code.`);
+          compileAndRunC(code, ws);
           break;
 
         case 'python':
@@ -143,6 +148,73 @@ function compileAndRunCPP(cppCode, ws) {
   });
 
   compileProcess.stdin.write(cppCode);
+  compileProcess.stdin.end();
+
+  let compilationError = '';
+
+  compileProcess.stderr.on('data', (data) => {
+    compilationError += data.toString();
+  });
+
+  compileProcess.on('close', (code) => {
+    if (code === 0) {
+      // Compilation succeeded; now run the compiled binary
+      const runProcess = spawn(outputExecutable, { shell: true });
+
+      runProcess.stdout.on('data', (data) => {
+        ws.send(JSON.stringify({ output: data.toString() }));
+      });
+
+      runProcess.stderr.on('data', (data) => {
+        ws.send(JSON.stringify({ error: data.toString() }));
+      });
+
+      // Forward any "input" from the WebSocket to the running process
+      ws.on('message', (message) => {
+        try {
+          const jsonData = JSON.parse(message);
+          if (jsonData.input) {
+            runProcess.stdin.write(jsonData.input + '\n');
+          }
+        } catch (error) {
+          console.error(`[${ws.id}] Error parsing input message:`, error);
+        }
+      });
+
+      runProcess.on('close', (exitCode) => {
+        ws.send(
+          JSON.stringify({
+            closed: true,
+            output: `\nProcess completed with exit code: ${exitCode}`,
+          })
+        );
+      });
+    } else {
+      // Compilation failed
+      ws.send(JSON.stringify({ output: '', error: compilationError }));
+      console.error(`[${ws.id}] Compilation failed.`);
+    }
+  });
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Compilation & Execution: C
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Compiles and runs the provided C code.
+ * @param {string} cCode - The C code to compile and run.
+ * @param {WebSocket} ws - The client's WebSocket connection.
+ */
+function compileAndRunC(cCode, ws) {
+  const outputExecutable = path.join(OUTPUTS_DIR, ws.id);
+
+  // Spawn a process to compile the code
+  const compileProcess = spawn('gcc', ['-o', outputExecutable, '-x', 'c', '-'], {
+    shell: true,
+  });
+
+  compileProcess.stdin.write(cCode);
   compileProcess.stdin.end();
 
   let compilationError = '';
@@ -273,8 +345,9 @@ app.use(express.json());
 // Endpoint to format code using clang-format
 app.post('/', (req, res) => {
   try {
-    const cppCode = req.body.code || '';
-    const formattedCode = formatCode(cppCode);
+    const code = req.body.code || '';
+    const language = req.body.lang || 'c++';
+    const formattedCode = formatCode(code, language);
     res.json({ code: formattedCode });
   } catch (error) {
     console.error('Formatting error:', error);
@@ -292,7 +365,6 @@ app.post('/log-data-for-analytics', (req, res) => {
   res.json({ message: 'Code compiler running' });
 });
 
-
 app.listen(PORT, () => {
   console.log(`HTTP server is running on port ${PORT}`);
 });
@@ -304,10 +376,12 @@ app.listen(PORT, () => {
 /**
  * Formats C/C++ code using clang-format (with style config specified by `.clang-format` file or default).
  * @param {string} code - The code to be formatted.
+ * @param {string} language - The language of the code (c, c++).
  * @returns {string} - The formatted code.
  */
-function formatCode(code) {
+function formatCode(code, language) {
   try {
+    // clang-format works for both C and C++
     return execSync('clang-format -style=file', { input: code }).toString();
   } catch (error) {
     // Log the error and return the original code if formatting fails
