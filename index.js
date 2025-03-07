@@ -287,6 +287,12 @@ app.get('/', (req, res) => {
   res.json({ message: 'Code compiler running' });
 });
 
+app.post('/log-data-for-analytics', (req, res) => {
+  console.log('log:', req.body);
+  res.json({ message: 'Code compiler running' });
+});
+
+
 app.listen(PORT, () => {
   console.log(`HTTP server is running on port ${PORT}`);
 });
